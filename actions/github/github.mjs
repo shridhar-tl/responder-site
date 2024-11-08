@@ -100,7 +100,7 @@ ${commentsContent}
 
 async function updateGitHubIssue(issueDetails, apiResponse) {
     if (!issueDetails.isSuccess) {
-        console.warn("No updates made as the AI call is not successful");
+        console.warn("No updates made as the AI call is not successful:", apiResponse);
         return;
     }
 
@@ -144,7 +144,10 @@ function getCmdArguments() {
                 result[key] = value;
                 i++; // Increment i to skip the value
             } else {
-                result[key] = true; // Default to true if no value
+                result[key] = value ?? true; // Default to true if no value
+                if (!value) {
+                    i++; // Increment i to skip the value just in case if empty value is passed
+                }
             }
         } else {
             console.error(`Invalid argument: ${arg}`);
