@@ -99,7 +99,7 @@ ${commentsContent}
 }
 
 async function updateGitHubIssue(issueDetails, apiResponse) {
-    if (!issueDetails.isSuccess) {
+    if (!apiResponse.isSuccess) {
         console.warn("No updates made as the AI call is not successful:", apiResponse);
         return;
     }
