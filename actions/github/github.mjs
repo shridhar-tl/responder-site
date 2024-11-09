@@ -4,7 +4,10 @@ const args = getCmdArguments();
 const defaultDisclaimer = "**Disclaimer**: Please note that this response has been generated automatically by an AI bot. While we strive for accuracy, there may be instances where the information is incorrect or inappropriate. We review these responses periodically and will make necessary corrections as needed. We appreciate your understanding.";
 const closedTicketDisclaimer = "**Disclaimer**: This ticket has been closed based on the information provided. Please note that this response was generated automatically by an AI bot, and while we strive for accuracy, there may be instances where the information is incorrect or inappropriate. If you believe it is inappropriate to close this ticket or if you have further issues to discuss, you are welcome to reopen the ticket. It will be reviewed manually at a later point. Thank you for your understanding.";
 
-const { ticket: issueKey, repo, authToken, ghToken, orgId, botId, updateOnly, ticketType = "issues", testMode } = args;
+const { ticket: issueKey, repo, authToken, ghToken, orgId, botId, updateOnly, ticketType = "issues" } = args;
+let { testMode } = args;
+testMode = Boolean(testMode);
+
 const padNumber = (number) => number.toString().padStart(5, '0');
 const isIssue = ticketType === "issues";
 const issueApiUrl = `https://api.github.com/repos/${repo}/${ticketType}/${issueKey}`;
