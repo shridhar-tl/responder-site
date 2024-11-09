@@ -1,18 +1,20 @@
 
 const args = getCmdArguments();
 
-const { ticket: issueKey, repo, authToken, ghToken, orgId, botId, updateOnly } = args;
+const { ticket: issueKey, repo, authToken, ghToken, orgId, botId, updateOnly, ticketType = "issues", testMode } = args;
 const padNumber = (number) => number.toString().padStart(5, '0');
+const isIssue = ticketType === "issues";
+const issueApiUrl = `https://api.github.com/repos/${repo}/${ticketType}/${issueKey}`;
 
 await (async function () {
     try {
-        const issueDetails = await gitFetch(`https://api.github.com/repos/${repo}/issues/${issueKey}`);
-        console.log("Done fetching issue details");
+        const issueDetails = await gitFetch(issueApiUrl);
+        console.log(`Done fetching ${ticketType} details`);
 
-        const comments = issueDetails.comments ? await gitFetch(issueDetails.comments_url) : [];
-        console.log("Done fetching issue comments");
+        const comments = issueDetails.comments ? await gitFetch(issueDetails.comments_url ?? `${issueApiUrl}/comments`) : [];
+        console.log(`Done fetching ${ticketType} comments`);
 
-        const repoLabels = !updateOnly && await gitFetch(`https://api.github.com/repos/${repo}/labels`);
+        const repoLabels = !updateOnly && ticketType === 'issues' && await gitFetch(`https://api.github.com/repos/${repo}/labels`);
         console.log("Done fetching repo labels");
 
         const apiResponse = await callResponder(issueDetails, comments, repoLabels, updateOnly);
@@ -60,7 +62,11 @@ async function callAPI(url, options) {
 }
 
 async function callResponder(issueDetails, comments, repoLabels, updateOnly) {
-    const labels = issueDetails.labels.map(label => label.name);
+    let labels = issueDetails.labels.map(label => label.name).join(',');
+    if (labels) {
+        labels = `\nLabels: ${labels}`
+    }
+
     const { number, state, title, body } = issueDetails;
 
     let commentsContent = comments.map(comment =>
@@ -72,22 +78,28 @@ async function callResponder(issueDetails, comments, repoLabels, updateOnly) {
     }
 
     const content = `
-Issue number:${number} (${state})
-Title: ${title}
-Labels: ${labels.join(',')}
-Description: ${body}
+${isIssue ? 'Issue' : 'Discussion'} number:${number} (${state})
+Title: ${title}${labels}
+Created by: ${issueDetails.user.login} on ${new Date(issueDetails.created_at).toISOString()}
+Body: ${body}
 ${commentsContent}
 `.trim();
-    const customId = `g_issue_${padNumber(number)}`;
+    const customId = isIssue ? `g_issue_${padNumber(number)}` : `g_discussion_${padNumber(number)}`;
     const requestBody = { customId, content };
 
     const basePath = 'https://335k3gia6uavyfimzvao2l6fzy0wuajw.lambda-url.ap-south-1.on.aws';
 
-    let apiUrl = `${basePath}/bot/${orgId}/${botId}/resource-center`;
+    let apiUrl = `${basePath}/responder/resource/${orgId}/${botId}`;
 
     if (!updateOnly) {
         apiUrl = `${basePath}/responder/${orgId}/${botId}/github`;
-        requestBody.labels = repoLabels?.map(label => ({ text: label.name, description: label.description }))
+        if (isIssue) {
+            requestBody.labels = repoLabels?.map(label => ({ text: label.name, description: label.description }));
+        }
+
+        if (testMode) {
+            requestBody.testMode = true;
+        }
     }
 
     return await callAPI(apiUrl, {
@@ -98,15 +110,18 @@ ${commentsContent}
     });
 }
 
+const defaultDisclaimer = "**Disclaimer**: Please note that this response has been generated automatically by an AI bot. While we strive for accuracy, there may be instances where the information is incorrect or inappropriate. We review these responses periodically and will make necessary corrections as needed. We appreciate your understanding.";
+const closedTicketDisclaimer = "**Disclaimer**: This ticket has been closed based on the information provided. Please note that this response was generated automatically by an AI bot, and while we strive for accuracy, there may be instances where the information is incorrect or inappropriate. If you believe it is inappropriate to close this ticket or if you have further issues to discuss, you are welcome to reopen the ticket. It will be reviewed manually at a later point. Thank you for your understanding.";
+
 async function updateGitHubIssue(issueDetails, apiResponse) {
     if (!apiResponse.isSuccess) {
         console.warn("No updates made as the AI call is not successful:", apiResponse);
         return;
     }
 
-    const comment = apiResponse.comment && `${apiResponse.comment}\n\n---\n*This is an AI-generated response and there are possibilities of errors.*`;
+    const comment = apiResponse.comment && `${apiResponse.comment}\n\n---\n${issueDetails.state !== 'closed' ? defaultDisclaimer : closedTicketDisclaimer}`;
     if (comment) {
-        await gitFetch(`https://api.github.com/repos/${repo}/issues/${issueKey}/comments`, { body: comment });
+        await gitFetch(`https://api.github.com/repos/${repo}/${ticketType}/${issueKey}/comments`, { body: comment });
     }
 
     let updateData = {};
@@ -123,7 +138,7 @@ async function updateGitHubIssue(issueDetails, apiResponse) {
     }
 
     if (Object.keys(updateData).length > 0) {
-        await gitFetch(`${issueDetails.repository_url}/issues/${issueKey}`, updateData, 'PATCH');
+        await gitFetch(`${issueDetails.repository_url}/${ticketType}/${issueKey}`, updateData, 'PATCH');
     }
 }
 

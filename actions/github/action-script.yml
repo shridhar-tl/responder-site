@@ -5,6 +5,15 @@ on:
     types: [opened]
   issue_comment:
     types: [created]
+  discussion:
+    types: [created]
+  discussion_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  discussions: write
+  statuses: write
 
 jobs:
   run-script:
@@ -26,6 +35,16 @@ jobs:
         run: |
           curl -o github.mjs https://bot.jiraassistant.com/actions/github/github.mjs
 
+      - name: Identify Action
+        run: |
+          if [[ "${{ github.event_name }}" == "discussion_comment" ]] || [[ "${{ github.event_name }}" == "discussion" ]]; then
+            TICKET_TYPE="discussion"
+            TICKET_NUMBER="${{ github.event.discussion.number }}"
+          else
+            TICKET_TYPE="issue"
+            TICKET_NUMBER="${{ github.event.issue.number }}"
+          fi
+
       - name: Retrieve collaborators
         id: get-collaborators
         run: |
@@ -39,7 +58,8 @@ jobs:
           COMMENT_USER="${{ github.actor }}"
           if grep -q "$COMMENT_USER" collaborators.txt; then
             echo "Comment was made by a collaborator."
-            node github.mjs --ticket "${{ github.event.issue.number }}" \
+            node github.mjs --ticket "$TICKET_NUMBER" \
+                  --ticketType "$TICKET_TYPE" \
                   --repo "${{ github.repository }}" \
                   --orgId "${{ vars.RESPONDER_ORG_ID }}" \
                   --botId "${{ vars.RESPONDER_BOT_ID }}" \
@@ -51,7 +71,8 @@ jobs:
 
       - name: Execute script
         run: |
-          node github.mjs --ticket "${{ github.event.issue.number }}" \
+          node github.mjs --ticket "$TICKET_NUMBER" \
+                  --ticketType "$TICKET_TYPE" \
                   --repo "${{ github.repository }}" \
                   --orgId "${{ vars.RESPONDER_ORG_ID }}" \
                   --botId "${{ vars.RESPONDER_BOT_ID }}" \
