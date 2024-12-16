@@ -68,7 +68,7 @@ async function callAPI(url, options) {
 }
 
 async function callResponder(issueDetails, comments, repoLabels, updateOnly) {
-    let labels = issueDetails.labels.map(label => label.name).join(',');
+    let labels = issueDetails.labels.map(label => label.name).join(', ');
     if (labels) {
         labels = `\nLabels: ${labels}`
     }
@@ -77,10 +77,10 @@ async function callResponder(issueDetails, comments, repoLabels, updateOnly) {
 
     let commentsContent = comments.map(comment =>
         `* ${comment.user.login} commented on ${new Date(comment.created_at).toISOString()}:\n${comment.body}`
-    ).join('---------');
+    ).join('\n---------\n');
 
     if (commentsContent) {
-        commentsContent = `Comments: ${commentsContent}`;
+        commentsContent = `Comments:\n${commentsContent}`;
     }
 
     const content = `
