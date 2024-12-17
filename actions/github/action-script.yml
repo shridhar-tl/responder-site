@@ -15,7 +15,7 @@ on:
           - issues
           - discussions
         default: issues
-      updateKB:
+      avoidUpdate:
         description: 'Do not update Resource center'
         required: false
         type: boolean
@@ -97,7 +97,7 @@ jobs:
 
       - name: Execute script
         run: |
-          node github.mjs --testMode "${{ github.event.inputs.updateKB || false }}" --ticket "$TICKET_NUMBER" \
+          node github.mjs --testMode "${{ github.event.inputs.avoidUpdate }}" --ticket "$TICKET_NUMBER" \
                   --ticketType "$TICKET_TYPE" \
                   --repo "${{ github.repository }}" \
                   --orgId "${{ vars.RESPONDER_ORG_ID }}" \
