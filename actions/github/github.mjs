@@ -1,5 +1,18 @@
+import { tmpdir } from 'os';
+import { promises as fs } from 'fs';
+import path from 'path';
+import http from 'http';
+import https from 'https';
+import { pathToFileURL } from 'url';
+
+const dummyOverride = {
+    onBeforeGenerateResponse: (req) => req,
+    onBeforePostResponse: (req) => req,
+};
 
 const args = getCmdArguments();
+
+const responderBasePath = process.env.RESP_PASE_PATH || 'https://335k3gia6uavyfimzvao2l6fzy0wuajw.lambda-url.ap-south-1.on.aws';
 
 const defaultDisclaimer = "**Disclaimer**: Please note that this response has been generated automatically by an AI bot. While we strive for accuracy, there may be instances where the information is incorrect or inappropriate. We review these responses periodically and will make necessary corrections as needed. We appreciate your understanding.";
 const closedTicketDisclaimer = "**Disclaimer**: This ticket has been closed based on the information provided. Please note that this response was generated automatically by an AI bot, and while we strive for accuracy, there may be instances where the information is incorrect or inappropriate. If you believe it is inappropriate to close this ticket or if you have further issues to discuss, you are welcome to reopen the ticket. It will be reviewed manually at a later point. Thank you for your understanding.";
@@ -14,6 +27,7 @@ const issueApiUrl = `https://api.github.com/repos/${repo}/${ticketType}/${issueK
 
 await (async function () {
     try {
+        const overrides = await loadOverride();
         const issueDetails = await gitFetch(issueApiUrl);
         console.log(`Done fetching ${ticketType} details`);
 
@@ -23,7 +37,14 @@ await (async function () {
         const repoLabels = !updateOnly && ticketType === 'issues' && await gitFetch(`https://api.github.com/repos/${repo}/labels`);
         console.log("Done fetching repo labels");
 
-        const apiResponse = await callResponder(issueDetails, comments, repoLabels, updateOnly);
+        const request = { issueDetails, comments, repoLabels, updateOnly };
+        const preProcessedData = overrides.onBeforeGenerateResponse(request);
+        if (!preProcessedData?.issueDetails || preProcessedData?.canceled) {
+            console.warn("No updates made based on response from onBeforeGenerateResponse:", preProcessedData);
+            return;
+        }
+
+        const apiResponse = await callResponder(preProcessedData.issueDetails, preProcessedData.comments, preProcessedData.repoLabels, preProcessedData.updateOnly);
         console.log("Done getting response from bot");
 
         if (updateOnly) {
@@ -35,7 +56,12 @@ await (async function () {
             console.log("Cost incurred for processing this ticket", apiResponse.completionCost);
         }
 
-        await updateGitHubIssue(issueDetails, apiResponse);
+        const result = overrides.onBeforePostResponse({ response: apiResponse, request });
+        if (!result?.response || result?.canceled) {
+            console.warn("No updates made based on response from onBeforePostResponse:", result);
+            return;
+        }
+        await updateGitHubIssue(issueDetails, result.response);
         console.log("Done with updating ticket");
     } catch (error) {
         console.error(`Error: ${error.message}`, error);
@@ -67,40 +93,42 @@ async function callAPI(url, options) {
     return await response.json();
 }
 
-async function callResponder(issueDetails, comments, repoLabels, updateOnly) {
-    let labels = issueDetails.labels.map(label => label.name).join(', ');
-    if (labels) {
-        labels = `\nLabels: ${labels}`
-    }
+async function callResponder(sourceIssue, comments, repoLabels, updateOnly) {
+    const labels = sourceIssue.labels.map(label => label.name).join(', ');
 
-    const { number, state, title, body } = issueDetails;
+    const { number, state, title, body } = sourceIssue;
 
-    let commentsContent = comments.map(comment =>
-        `* ${comment.user.login} commented on ${new Date(comment.created_at).toISOString()}:\n${comment.body}`
-    ).join('\n---------\n');
+    const commentsContent = comments.map(comment => ({
+        createdBy: comment.user.login,
+        updatedBy: comment.update_user?.login,
+        body: comment.body?.trim(),
+        createdAt: new Date(comment.created_at),
+        modifiedAt: new Date(comment.updated_at)
+    })).filter(c => !!c.body);
 
-    if (commentsContent) {
-        commentsContent = `Comments:\n${commentsContent}`;
-    }
+    const content = {
+        system: 'GitHub',
+        issueKey: number,
+        issueType: isIssue ? 'Issue Ticket' : 'Discussion',
+        status: state,
+        createdBy: sourceIssue.user.login,
+        createdAt: new Date(sourceIssue.created_at),
+        body: body?.trim(),
+        comments: commentsContent?.length ? commentsContent : undefined,
+        attributes: [
+            labels && { label: 'Labels', value: labels }
+        ].filter(Boolean)
+    };
 
-    const content = `
-${isIssue ? 'Issue' : 'Discussion'} number:${number} (${state})
-Title: ${title}${labels}
-Created by: ${issueDetails.user.login} on ${new Date(issueDetails.created_at).toISOString()}
-Body: ${body}
-${commentsContent}
-`.trim();
     const customId = isIssue ? `g_issue_${padNumber(number)}` : `g_discussion_${padNumber(number)}`;
-    const requestBody = { customId, content };
+    const requestBody = { customId, title: title?.trim(), content };
 
-    const basePath = 'https://335k3gia6uavyfimzvao2l6fzy0wuajw.lambda-url.ap-south-1.on.aws';
-
-    let apiUrl = `${basePath}/responder/resource/${orgId}/${botId}`;
+    let apiUrl = `${responderBasePath}/responder/resource/${orgId}/${botId}`;
 
     if (!updateOnly) {
-        apiUrl = `${basePath}/responder/${orgId}/${botId}/github`;
-        if (isIssue) {
-            requestBody.labels = repoLabels?.map(label => ({ text: label.name, description: label.description }));
+        apiUrl = `${responderBasePath}/responder/${orgId}/${botId}/github`;
+        if (isIssue && repoLabels?.length) {
+            requestBody.attributes = { labels: repoLabels.map(label => ({ text: label.name, description: label.description })) };
         }
 
         if (testMode) {
@@ -174,4 +202,50 @@ function getCmdArguments() {
     }
 
     return result;
+}
+
+export async function loadOverride() {
+    const urlOrPath = process.env.RESP_OVERRIDE_FILE_URL?.trim();
+    if (!urlOrPath) {
+        return dummyOverride;
+    }
+
+    const isHttp = urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://');
+    let modulePath = urlOrPath;
+
+    if (isHttp) {
+        try {
+            const tempDir = tmpdir();
+            const filename = `rs_override_${Date.now()}.mjs`;
+            const filePath = path.join(tempDir, filename);
+
+            await new Promise((resolve, reject) => {
+                const protocol = urlOrPath.startsWith('https') ? https : http;
+                protocol.get(urlOrPath, (response) => {
+                    if (response.statusCode !== 200) {
+                        reject(new Error(`Failed to download file: ${response.statusCode}`));
+                        return;
+                    }
+                    const writeStream = response.pipe(fs.createWriteStream(filePath));
+                    writeStream.on('finish', resolve);
+                    writeStream.on('error', reject);
+                }).on('error', reject);
+            });
+
+            modulePath = path.resolve(filePath);
+        } catch (error) {
+            console.error('Error downloading override file:', error);
+            return dummyOverride;
+        }
+    }
+
+    try {
+        const moduleFilePath = pathToFileURL(modulePath).href;
+        console.log('Loading override module:', moduleFilePath);
+        const module = await import(moduleFilePath);
+        return { ...dummyOverride, ...module };
+    } catch (error) {
+        console.error('Error loading override module:', error);
+        return dummyOverride;
+    }
 }
