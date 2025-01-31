@@ -26,12 +26,5 @@ export function onBeforeGenerateResponse(req) {
         return c;
     });
 
-    // Temp: This has to be removed
-    //req.comments = [];//.splice(2, 1);
-
     return req;
-}
-
-export function onBeforePostResponse() {
-    return null; // Temp: thi sis for testing
 }

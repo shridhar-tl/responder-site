@@ -1,5 +1,5 @@
 import { tmpdir } from 'os';
-import { promises as fs } from 'fs';
+import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import https from 'https';
