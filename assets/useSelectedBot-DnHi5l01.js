@@ -1,0 +1,1 @@
+import{t as e}from"./bot-Qd2Z2wo-.js";function t(t){let n=e(e=>e.selectedBotId),r=e(e=>e.botsMap[t||n]);return[t||n,r]}export{t};

@@ -1,0 +1,1 @@
+import{i as e,r as t}from"./ajax-Dkshjpbu.js";async function n(e){return await t(`/organizations/password/forgot`,{email:e},{noAuth:!0})}async function r(e,n,r){return await t(`/organizations/password/reset`,{password:e,email:n,code:r},{noAuth:!0})}async function i(t,n,r){return await e(`/organizations/${r}/password`,{currentPassword:t,newPassword:n})}export{n,i as r,r as t};

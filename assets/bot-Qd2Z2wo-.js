@@ -1,0 +1,1 @@
+import{o as e}from"./auth-CDUWJMbw.js";var t=e(()=>({selectedBot:void 0,selectedBotId:void 0,botsList:[],botsMap:{}}));export{t};
